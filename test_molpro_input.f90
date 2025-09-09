@@ -1,4 +1,4 @@
-module testapp_tests
+module test_molpro_input
     use molpro_input, only : generate_molpro_input, convert_keyval_to_json
     use fortuno_serial, only : is_equal, test => serial_case_item, check => serial_check, test_list
     implicit none
@@ -13,7 +13,11 @@ contains
         do i=1,len_trim(string)
            if (result(i:i) .eq. new_line(' ')) result(i:i) = ';'
         end do
-        if (result(len(result):len(result)).eq.new_line(' ')) result = result(:len(result)-1)
+        do while (index(result,';;').gt.0)
+           i = index(result,';;')
+            result = result(:i)//result(i+2:)
+        end do
+        if (result(len(result):len(result)).eq.';') result = result(:len(result)-1)
     end function canonicalise
 
     subroutine check_strings(candidate, reference)
@@ -38,10 +42,18 @@ contains
     end function tests
 
     subroutine test_generate_molpro_input()
-!        call check_strings(generate_molpro_input('geometry=He') , 'geometry={He};rhf')
+        call check_strings(generate_molpro_input('geometry=He') , 'geometry={He};proc ansatz;{hf};endproc;{ansatz}')
         call check_strings(generate_molpro_input('prologue="file,2,orb.wf"') , 'file,2,orb.wf')
         call check_strings(generate_molpro_input('{"prologue":"file,2,orb.wf"}') , 'file,2,orb.wf')
-        call check_strings(generate_molpro_input('{"prologue":["file,2,orb.wf"]}') , 'file,2,orb.wf')
+        call check_strings(generate_molpro_input('{"prologue":["file,1,orb.int","file,2,orb.wf"]}') , 'file,1,orb.int;file,2,orb.wf')
+        call check_strings(generate_molpro_input('{"basis": {"default":"cc-pV5Z"}}'),'basis=cc-pV5Z')
+        call check_strings(generate_molpro_input('{"basis": {"default":"cc-pV5Z", "elements":{"Cu":"cc-pVTZ-PP", "Zn":"cc-pVQZ-PP"}}}'),'basis=cc-pV5Z,Cu=cc-pVTZ-PP,Zn=cc-pVQZ-PP')
+        call check_strings(generate_molpro_input('core_correlation=mixed') , 'core,mixed')
+        call check_strings(generate_molpro_input('{"variables": {"a":"a1","b":"b2"}}') , 'a=a1;b=b2')
+        call check_strings(generate_molpro_input('{"hamiltonian":"DK3"}') , 'dkho=3')
+        call check_strings(generate_molpro_input('{"hamiltonian":"PP"}') , '')
+        call check_strings(generate_molpro_input('{"geometry":"He", "job_type":"OPT+FREQ"}') , 'geometry={He};proc ansatz;{hf};endproc;{optg,savexyz=optimised.xyz,proc=ansatz};{frequencies,proc=ansatz;thermo}')
+        call check_strings(generate_molpro_input('{"geometry":"He", "method":"mp2"}'),'geometry={He};proc ansatz;{hf};{mp2};endproc;{ansatz}')
     end subroutine test_generate_molpro_input
 
     subroutine test_convert_keyval_to_json
@@ -55,4 +67,4 @@ contains
         call check(convert_keyval_to_json('basis="cc-pVTZ,Zn=cc-pVTZ-PP,Cu=cc-pVQZ-PP"') == '{"basis": {"default":"cc-pVTZ","elements":{"Zn":"cc-pVTZ-PP","Cu":"cc-pVQZ-PP"}}')
     end subroutine test_convert_keyval_to_json
 
-end module testapp_tests
+end module test_molpro_input

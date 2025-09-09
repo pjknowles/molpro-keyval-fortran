@@ -1,7 +1,7 @@
 program main
 
     use fortuno_serial, only : execute_serial_cmd_app
-    use testapp_tests, only : tests
+    use test_molpro_input, only : tests
     implicit none
 
     ! Register tests by providing name and subroutine to run for each test.

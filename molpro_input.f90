@@ -1,6 +1,10 @@
 module molpro_input
     private
     public :: convert_keyval_to_json, generate_molpro_input
+    type :: keyval
+        character(:), allocatable :: key
+        character(:), allocatable :: value
+    end type keyval
 contains
     logical function istrue()
         istrue = .true.
@@ -111,38 +115,65 @@ contains
         character(*), intent(in) :: string
         character(:), allocatable :: json_strng
         logical(kind = json_lk) :: status_ok
-        character(:), allocatable :: cval
+        character(:), allocatable :: cval, basis_spec, key, string2, job_type, string3
+        type(json_value), pointer :: value, value2
+        type(json_core) :: core
+        integer :: i, j
+        type(keyval), dimension(:), allocatable :: keyvals
+        character(len=2048) :: path
 
         call schema%initialize(path_separator = '/')
-        call schema%load('/Users/peterk/trees/molpro-keyval-fortran/molpro_input.json')
-        call schema%print
-        print *, 'default geometry: ', schema_get('properties/geometry/default')
-        print *, 'default basis: ', schema_get('properties/basis/properties/default/default')
-        cval = get('basis/default', default = .true.)
-        print *, 'defaulted basis/default: ', cval
-        cval = get('hamiltonian', default = .true.)
-        print *, 'defaulted hamiltonian: ', cval
-        cval = get('hamiltonian', default = .false.)
-        print *, 'undefaulted hamiltonian: ', cval
+        call get_command_argument(0, path)
+        path = path(:index(path,'/',.true.))//'molpro_input.json'
+        call schema%load(path)
+!                call schema%print
+        !        print *, 'default geometry: ', schema_get('properties/geometry/default')
+        !        print *, 'default basis: ', schema_get('properties/basis/properties/default/default')
 
         result = ''
-        call json%initialize
+        call json%initialize(path_separator = '/')
         if (string(1:1).eq.'{') then
             json_strng = string
         else
             json_strng = convert_keyval_to_json(string)
         end if
-        print *, 'json_strng: ', json_strng
+        !        print *, 'json_strng: ', json_strng
         call json%load_from_string(json_strng)
+        call json%get_core(core)
         call json%check_for_errors(status_ok, cval)
-        print *, status_ok
+        !        print *, status_ok
         if (.not.status_ok) print *, cval
-        call json%print
+        !        call json%print
+
+        !        cval = get('basis/default', default = .true.)
+        !        print *, 'defaulted basis/default: ', cval
+        !        cval = get('basis/default', default = .false.)
+        !        print *, 'undefaulted basis/default: ', cval
+        !        cval = get('hamiltonian', default = .true.)
+        !        print *, 'defaulted hamiltonian: ', cval
+        !        cval = get('hamiltonian', default = .false.)
+        !        print *, 'undefaulted hamiltonian: ', cval
 
         call add_input('prologue')
+
+        call json%get('orientation', cval, is_found)
+        if (is_found) then
+            if (cval.eq.'none') then
+                call put('orient,noorient')
+            else
+                call put('orient' // cval)
+            end if
+        end if
+
+        call json%get('symmetry', cval, is_found)
+        if (is_found .and. cval.eq.'none') call put('symmetry,nosym')
+
+        call json%get('angstrom', cval, is_found)
+        if (is_found .and. cval.ne.'') call put('angstrom')
+
         call json%get('geometry', cval, is_found)
         if (is_found) then
-            print *, 'geometry_found', cval
+            !            print *, 'geometry_found', cval
             inquire (file = cval, exist = status_ok)
             if (status_ok .or. cval(len_trim(cval) - 2:).eq.'.h5' .or. cval(len_trim(cval) - 3:).eq.'.xyz' .or. cval(1:1).eq.'{') then
                 call put('geometry=' // cval)
@@ -151,7 +182,116 @@ contains
             endif
         end if
 
+        call json%get('basis', value, is_found)
+        if (is_found) then
+            basis_spec = 'basis=' // get('basis/default')
+            call json%get('basis/elements', value, is_found)
+            if (is_found) then
+                keyvals = get_keyvals('basis/elements')
+                do i = lbound(keyvals, 1), ubound(keyvals, 1)
+                    basis_spec = basis_spec // ',' // keyvals(i)%key // '=' // keyvals(i)%value
+                end do
+            end if
+            call put(basis_spec)
+        end if
+
+        call json%get('hamiltonian', cval, is_found)
+        if (is_found .and. cval(1:2).eq.'DK') then
+            i = 1
+            if (len(cval).eq.3) read(cval(3:), '(I1)') i
+            call put('dkho=' // int_to_str(i))
+        end if
+
+        call json%get('variables', value, is_found)
+        if (is_found) then
+            keyvals = get_keyvals('variables')
+            do i = lbound(keyvals, 1), ubound(keyvals, 1)
+                if (keyvals(i)%value.ne.'' .and. (keyvals(i)%key .ne. 'charge' .or. keyvals(i)%value .ne. '0')) call put(keyvals(i)%key // '=' // keyvals(i)%value)
+            end do
+        end if
+
+        call json%get('core_correlation', cval, is_found)
+        if (is_found) call put('core,' // cval)
+
+        ! TODO properly implement multi-step methods
+        call json%get('geometry', string2, is_found)
+        if (is_found) then
+
+            call put('proc ansatz')
+            string2 = get('method', default = .true.)
+            !        print*,'method', string2
+            string3 = string2//','
+            string3 = string3(:index(string3,',')-1)
+            if (index('ur', string3(1:1)).gt.0) string3 = string3(2:)
+            if (string3(1:2).ne.'hf' .and. string3(1:2).ne.'ks') then
+                string3 = 'hf'
+                if (get('density_fitting').ne.'') string3 = 'df-' // string3
+                call put('{'//string3//'}')
+            end if
+
+            if (get('density_fitting').ne.'' .and. string2(:4) .ne. 'pno-' .and.string2(:4) .ne. 'ldf-') string2 = 'df-' // string2
+            call put('{'//string2//'}')
+            call put('endproc')
+
+            job_type = get('job_type', .true.)
+            !TODO drive off job json instead of always schema defaults
+            do i = 1, 100
+                string2 = schema_get('properties/job_type_commands/items/' // job_type // '/default(' // int_to_str(i) // ')')
+                if (string2.eq.'' .and. i.eq.1) call put('{ansatz}')
+                if (string2.eq.'') exit
+                string2 = string2 // ';'
+                j = index(string2, ';')
+                string2 = string2(:j - 1) // ',proc=ansatz' // string2(j:)
+                string2 = '{' // string2(:len_trim(string2) - 1) // '}'
+                call put(string2)
+            end do
+        end if
+
+
     contains
+
+        function get_keyvals(path) result(keyvals)
+            character(*), intent(in) :: path
+            type(json_value), pointer :: node, element
+            type(keyval), dimension(:), allocatable :: keyvals
+            type(json_value), pointer :: value
+            character(:), allocatable :: string, element_path
+            integer :: n
+            call json%get(path, node, is_found)
+            n = core%count(node)
+            !            print *, 'in get_keyvals, n=', n
+            !            call core%print(node)
+            allocate(keyvals(n))
+            do i = 1, n ! there must be an easier way to get the keys!
+                element_path = path // '(' // int_to_str(i) // ')'
+                !                print *, 'element_path', element_path
+                call json%get(element_path, element, is_found)
+                !                print *, 'is_found ', is_found
+                !                call core%print(element)
+                call core%get_path(element, string)
+                !                print *, 'string ', string, index(string, '/', .true.)
+                key = string(index(string, '/', .true.) + 1:)
+                !                print *, 'key', key
+                call core%print_to_string(element, string)
+                !                print *, 'value', string
+                string = string(2:len_trim(string) - 2)
+                !                print *, 'value', string
+                keyvals(i) = keyval(key, string)
+            end do
+        end function get_keyvals
+
+        recursive pure function int_to_str(i) result(result)
+            character(:), allocatable :: result
+            integer, intent(in) :: i
+            integer :: j
+            result = ''
+            if (i.lt.10) then
+                result = char(ichar('0') + i)
+            elseif (i.lt.100) then
+                j = i / 10
+                result = int_to_str(j) // int_to_str(i - j * 10)
+            end if
+        end function int_to_str
 
         subroutine add_input(keyword, default)
             character(*), intent(in) :: keyword
@@ -168,18 +308,40 @@ contains
             character(:), allocatable :: result
             logical, optional :: default
             character(*), intent(in) :: path
-            character(:), allocatable :: schema_path
+            character(:), allocatable :: schema_path, res
             logical(kind = json_lk) :: status_ok
-            print *, 'get ', path, present(default)
+            type(json_value), pointer :: value, value2
+            integer :: i
+            !                                    print *, 'get ', path, present(default)
             call json%get(path, result, status_ok)
-            if (status_ok) return
-            result = ''
-            print *, 'path: ', path
-            if (present(default)) then
-                if (default) then
-                    result = schema_default(path)
+            !                        print *,status_ok
+            if (.not. status_ok) then
+                result = ''
+                ! is it instead a list?
+                !                print *, 'path ', path
+                call json%get(path, value, status_ok)
+                !                                print *, 'got json_value? ', status_ok
+                if (status_ok) then
+                    !                                    print *, 'got something'
+                    do i = 1, 99
+                        call json%get(trim(path) // '(' // int_to_str(i) // ')', res, status_ok)
+!                        if (status_ok) print *, 'loop got ', res
+                        result = result // res // new_line(' ')
+!                        print *, 'result now ', result
+                        if (.not. status_ok) exit
+                    end do
+                end if
+                !            print *, 'path: ', path
+                if (result .eq. '' .and. present(default)) then
+                    !                    if (default) print *, 'trying schema_default ', path
+                    if (default) result = schema_default(path)
+                    !                    if (default) print *, 'result', result
                 end if
             end if
+            do while (result(len(result):) .eq. new_line(' '))
+                result = result(:len(result) - 1)
+            end do
+            !            print *,'result @',result,'@'
         end function get
 
         function schema_default(path) result(result)
@@ -197,15 +359,17 @@ contains
             end do
             schema_path = schema_path // 'default'
             call schema%get(schema_path, result, status_ok)
-            print *, 'path: ', path
-            print *, 'schema_path: ', status_ok
+            !            print *, 'path: ', path
+            !            print *, 'schema_path: ', status_ok
             if (.not. status_ok) result = ''
         end function schema_default
-        function schema_get(keyword) result(result)
-            character(*), intent(in) :: keyword
+
+        function schema_get(path) result(result)
+            character(*), intent(in) :: path
             character(:), allocatable :: result
             logical(kind = json_lk) :: status_ok
-            call schema%get(keyword, result, status_ok)
+            call schema%get(path, result, status_ok)
+            !            print *, 'schema_get ',path, status_ok
             if (.not. status_ok) result = ''
         end function schema_get
     end function generate_molpro_input
