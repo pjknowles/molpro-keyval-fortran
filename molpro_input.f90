@@ -83,8 +83,15 @@ contains
                     equal_position = index(split_basis_string(j), '=')
                     value = value // '"' // adjustl(split_basis_string(j)(:equal_position - 1)) // &
                             '":"' // trim(adjustl(split_basis_string(j)(equal_position + 1:))) // '",'
+                    if (j.eq.ubound(split_basis_string,1)) then
+                     if (j.eq.1) then
+                         value(len_trim(value):) = '}'
+                         else
+                    value = value(:len_trim(value)-1) //'}}'
+                     end if
+                    end if
                 end do
-                value(len_trim(value):) = '}'
+!                print *, 'final basis string ', value
             else !if (value.ne.'True' .and. value.ne.'False') then
                 value = '"' // value // '"'
             end if
