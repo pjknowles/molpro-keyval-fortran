@@ -16,9 +16,16 @@ FetchContent_Declare(json-fortran
 set(JSONFORTRAN_ENABLE_TESTS OFF)
 FetchContent_MakeAvailable(json-fortran)
 
-add_executable(test-molpro-keyval-fortran main.f90 test_molpro_input.f90 molpro_input.f90)
-target_link_libraries(test-molpro-keyval-fortran PRIVATE Fortuno::fortuno_serial jsonfortran)
+add_library(molpro_input molpro_input.f90)
+target_link_libraries(molpro_input PUBLIC jsonfortran-static)
+
+add_executable(test_molpro_input test_molpro_input_main.f90 test_molpro_input.f90)
+target_link_libraries(test_molpro_input PRIVATE Fortuno::fortuno_serial molpro_input jsonfortran)
+
+add_executable(run_molpro_input run_molpro_input_main.f90)
+target_link_libraries(run_molpro_input PRIVATE molpro_input jsonfortran)
+
 
 enable_testing()
-add_test(NAME test-molpro-keyval-fortran COMMAND test-molpro-keyval-fortran)
+add_test(NAME test_molpro_input COMMAND test_molpro_input)
 file(COPY molpro_input.json DESTINATION .)

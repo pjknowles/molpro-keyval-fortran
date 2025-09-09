@@ -85,7 +85,7 @@ contains
                             '":"' // trim(adjustl(split_basis_string(j)(equal_position + 1:))) // '",'
                 end do
                 value(len_trim(value):) = '}'
-            else if (value.ne.'True' .and. value.ne.'False') then
+            else !if (value.ne.'True' .and. value.ne.'False') then
                 value = '"' // value // '"'
             end if
             !            print *, 'key', key, 'value', value
@@ -106,8 +106,6 @@ contains
     function generate_molpro_input(string) result(result)
         use :: json_module, rk => json_rk
         implicit none
-        real(kind = rk) :: t0, dt, tf, mu
-        real(kind = rk), allocatable :: x0(:)
         type(json_file) :: json
         type(json_file) :: schema
         logical :: is_found
