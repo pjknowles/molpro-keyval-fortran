@@ -59,9 +59,9 @@ contains
     function convert_keyval_to_json(string) result(result)
         character(:), allocatable :: result
         character(*), intent(in) :: string
-        character(:), allocatable, dimension(:) :: split_string, split_basis_string
-        character(:), allocatable :: key, value
-        integer :: i, j, equal_position
+        character(:), allocatable, dimension(:) :: split_string, split_basis_string, split_string2, split_string3
+        character(:), allocatable :: key, value, key2,value2
+        integer :: i, j, k, equal_position
         !        print *, 'convert_keyval_to_json', string
         result = ''
         split_string = split_quote_protected_string(string, ',')
@@ -92,6 +92,26 @@ contains
                     end if
                 end do
 !                print *, 'final basis string ', value
+            else if (key.eq.'method') then
+                split_string2 = split_quote_protected_string(value, ';')
+                value = '['
+                do j = lbound(split_string2, 1), ubound(split_string2, 1)
+!                    print *, 'key=',key,'substring=',split_string2(j)
+                    value = value // '"'//trim(split_string2(j))//'",'
+                end do
+                value = value(:len_trim(value)-1)//']'
+            else if (key.eq.'variables') then
+                split_string2 = split_quote_protected_string(value, ';')
+                value = '{'
+                do j = lbound(split_string2, 1), ubound(split_string2, 1)
+                        split_string3 = split_quote_protected_string(split_string2(j),'=')
+                        split_string2(j) = trim(split_string3(1))//'":"'//split_string3(2)
+!                    print *, 'key=',key,'substring=',split_string2(j)
+                    value = value // '"'//trim(split_string2(j))//'",'
+                end do
+                value = value(:len_trim(value)-1)//'}'
+!                print  *, 'variables, value=',value
+
             else !if (value.ne.'True' .and. value.ne.'False') then
                 value = '"' // value // '"'
             end if
@@ -105,7 +125,7 @@ contains
         end do
         if (result.eq.'') result = '{'
         result = result // '}'
-        !        print *, 'convert_keyval_to_json returns', result
+!                print *, 'convert_keyval_to_json returns', result
     end function convert_keyval_to_json
 
 
@@ -211,20 +231,21 @@ contains
         if (is_found) then
             keyvals = get_keyvals('variables')
             do i = lbound(keyvals, 1), ubound(keyvals, 1)
-                if (keyvals(i)%value.ne.'' .and. (keyvals(i)%key .ne. 'charge' .or. keyvals(i)%value .ne. '0')) call put(keyvals(i)%key // '=' // keyvals(i)%value)
+                if (keyvals(i)%value.ne.'' .and. (keyvals(i)%key .ne. 'charge' .or. keyvals(i)%value .ne. '0')) call put('set,'//keyvals(i)%key // '=' // keyvals(i)%value)
             end do
         end if
 
         call json%get('core_correlation', cval, is_found)
         if (is_found) call put('core,' // cval)
 
-        ! TODO properly implement multi-step methods
         call json%get('geometry', string2, is_found)
         if (is_found) then
 
             call put('proc ansatz')
             string2 = get('method', default = .true.)
-            !        print*,'method', string2
+            do i=1,len_trim(string2)
+                if (string2(i:i) .eq. new_line(' ')) string2 = string2(:i-1) // '};{'//string2(i+1:)
+            end do
             string3 = string2//','
             string3 = string3(:index(string3,',')-1)
             if (index('ur', string3(1:1)).gt.0) string3 = string3(2:)
